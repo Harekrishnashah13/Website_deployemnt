@@ -1,0 +1,14 @@
+# Copied to app/docker-compose.override.yml by `setup.sh --gpu`.
+services:
+  backend:
+    build:
+      context: .
+      args:
+        GPU: "1"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu, video]
