@@ -3,7 +3,7 @@
 
   Downloads the video on YOUR PC (home internet is not blocked by YouTube, unlike
   Colab), uploads it to your OpenShorts running on Colab, waits for the clips and
-  saves them to Downloads\shorts_<id>.
+  saves them to a "shorts" folder next to this script (or -OutDir).
 
   Usage (PowerShell):
     powershell -ExecutionPolicy Bypass -File make_shorts.ps1 -Url "https://youtu.be/..." -Server "https://xxxx.trycloudflare.com"
@@ -17,6 +17,7 @@ param(
     [string]$Server = "",
     [int]$Clips = 0,
     [switch]$UseChromeCookies,
+    [string]$OutDir = "",       # where the shorts go; default: a "shorts" folder next to this script
     [double]$MaxUploadMB = 95   # Cloudflare's free tunnel rejects request bodies over 100 MB
 )
 $ErrorActionPreference = "Stop"
@@ -131,7 +132,9 @@ while ($true) {
 }
 
 # --- Download the shorts ----------------------------------------------------
-$dest = Join-Path (Join-Path $HOME "Downloads") "shorts_$($jobId.Substring(0, 8))"
+if (-not $OutDir) { $OutDir = Join-Path $PSScriptRoot "shorts" }
+New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
+$dest = Join-Path $OutDir "shorts_$($jobId.Substring(0, 8))"
 $zip = "$dest.zip"
 Step "Downloading your shorts"
 Invoke-WebRequest "$Server/api/jobs/$jobId/download-all" -OutFile $zip -TimeoutSec 3600 -UseBasicParsing
