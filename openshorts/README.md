@@ -61,3 +61,13 @@ For Docker, add `fonts-noto-core` to the `apt-get install` list in OpenShorts' `
 ## "Gemini ... 503 UNAVAILABLE: high demand"
 
 Google's servers were busy. By default OpenShorts tries each Gemini call once, so one busy moment fails the whole job. `openshorts/patch_gemini_retry.py` makes every Gemini call retry up to 6 times, 5–60 seconds apart. The Colab notebook applies it in cell 3c. If Google stays overloaded for several minutes, the job can still fail; wait a little and run it again.
+
+## Paste a YouTube link, get shorts (free)
+
+YouTube blocks downloads from Colab, but not from your home internet. `openshorts/make_shorts.ps1` downloads the video on your Windows PC, uploads it to your OpenShorts on Colab, waits, and saves the finished shorts to `Downloads\shorts_<id>`:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File make_shorts.ps1 -Url "https://youtu.be/..." -Server "https://xxxx.trycloudflare.com"
+```
+
+`-Server` is the Dashboard or MCP link the Colab one-cell setup prints, and the script remembers it for next time. It installs yt-dlp and ffmpeg with winget the first time it runs. Videos over about 95 MB are compressed first, because Cloudflare's free tunnel rejects bigger uploads. Other options: `-Clips 5` asks for about 5 shorts, and `-UseChromeCookies` helps if YouTube asks you to sign in.
