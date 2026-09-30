@@ -51,3 +51,9 @@ You can pick moments with a local model through Ollama instead. Uncomment `LLM_B
 - **YouTube "sign in to confirm you're not a bot"**: upload the file directly, or set `YOUTUBE_COOKIES` in `.env`.
 - **Slow on CPU**: expect 5–8 minutes per 8-minute video. Use Colab or `--gpu` if you want it faster.
 - **Colab link shows "Blocked request"**: re-run cell 3, which patches `allowedHosts`, then cell 4.
+
+## Hindi and other non-Latin captions
+
+OpenShorts draws the hook box with a Latin-only font and burns captions without complex text shaping. Hindi (and Gujarati, Bengali, Tamil, Arabic...) then shows as empty boxes, or with vowel signs on the wrong letter. The Colab notebook fixes both: it installs `fonts-noto-core`, then runs `openshorts/patch_script_fonts.py` (cells 3b and 3c). English clips look the same as before.
+
+For Docker, add `fonts-noto-core` to the `apt-get install` list in OpenShorts' `Dockerfile`, then run `python openshorts/patch_script_fonts.py <openshorts folder>` before `docker compose up --build`.
