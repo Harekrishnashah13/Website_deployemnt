@@ -28,7 +28,13 @@ The script clones OpenShorts into `openshorts/app/` (git-ignored), creates `.env
 - Stop: `cd openshorts/app && docker compose down`
 - Update: re-run `setup.sh`
 
-On Windows, run the script from Git Bash or WSL with Docker Desktop running.
+On Windows, `bash` in PowerShell only works when WSL has a Linux distro installed. You don't need the script: start Docker Desktop, then run these in PowerShell inside the OpenShorts folder:
+
+```powershell
+docker --version                # confirms Docker Desktop is installed
+Copy-Item .env.example .env     # skip if .env already exists
+docker compose up --build
+```
 
 ## Using it
 
