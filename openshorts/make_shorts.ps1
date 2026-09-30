@@ -25,6 +25,13 @@ $ProgressPreference = "SilentlyContinue"   # Invoke-WebRequest is very slow with
 
 $ServerFile = Join-Path $HOME ".openshorts_server"
 
+# Windows PowerShell 5.1 decodes JSON without a charset as Latin-1, turning Hindi
+# into "à¤..." garbage; read the bytes as UTF-8 ourselves and print UTF-8.
+try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch { }
+function Get-Json($uri) {
+    $r = Invoke-WebRequest $uri -UseBasicParsing -TimeoutSec 60
+    return ([Text.Encoding]::UTF8.GetString($r.RawContentStream.ToArray()) | ConvertFrom-Json)
+}
 function Step($msg) { Write-Host "`n==> $msg" -ForegroundColor Cyan }
 function Have($cmd) { return [bool](Get-Command $cmd -ErrorAction SilentlyContinue) }
 
@@ -113,11 +120,11 @@ Step "Making shorts (job $jobId). Usually a few minutes on the Colab GPU..."
 $seen = 0
 while ($true) {
     Start-Sleep -Seconds 15
-    try { $st = Invoke-RestMethod "$Server/api/status/$jobId" -TimeoutSec 60 } catch { Write-Host "  (can't reach Colab, retrying...)"; continue }
+    try { $st = Get-Json "$Server/api/status/$jobId" } catch { Write-Host "  (can't reach Colab, retrying...)"; continue }
     $logs = @($st.logs)
     for ($i = $seen; $i -lt $logs.Count; $i++) {
         $line = ([string]$logs[$i]).Trim()
-        if ($line -and $line -notmatch '^(\[debug\]|W0000|INFO:|WARNING: All log|\^|File ")') {
+        if ($line -and $line -notmatch '^(\[debug\]|\[\d+\.\d+s ->|W0000|INFO:|WARNING: All log|Warning: You are sending|\^|File "|Creating new Ultralytics|View Ultralytics|Update Settings|Analyzing Scenes)') {
             if ($line.Length -gt 140) { $line = $line.Substring(0, 140) + "..." }
             Write-Host "  $line"
         }
