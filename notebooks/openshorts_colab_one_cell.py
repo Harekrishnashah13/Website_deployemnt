@@ -27,8 +27,8 @@ print("GPU:", "yes" if gpu else "NO (Runtime > Change runtime type > T4 GPU for 
 step("Installing system packages (~1 min)")
 sh("apt-get -qq update && apt-get -qq install -y ffmpeg fontconfig fonts-liberation "
    "fonts-noto-color-emoji fonts-noto-core > /dev/null")
-if "v20" not in subprocess.run("node -v", shell=True, capture_output=True, text=True).stdout:
-    sh("curl -fsSL https://deb.nodesource.com/setup_20.x | bash - > /dev/null && apt-get -qq install -y nodejs > /dev/null")
+if not re.match(r"v2[2-9]", subprocess.run("node -v", shell=True, capture_output=True, text=True).stdout):
+    sh("curl -fsSL https://deb.nodesource.com/setup_22.x | bash - > /dev/null && apt-get -qq install -y nodejs > /dev/null")
 if not os.path.exists("/usr/local/bin/deno"):  # yt-dlp needs a JS runtime for YouTube's challenges
     sh("curl -fsSL https://github.com/denoland/deno/releases/latest/download/deno-x86_64-unknown-linux-gnu.zip "
        "-o /tmp/deno.zip && python3 -c \"import zipfile; zipfile.ZipFile('/tmp/deno.zip').extract('deno', '/usr/local/bin')\" "
