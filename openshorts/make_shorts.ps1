@@ -13,7 +13,8 @@
             next time only -Url is needed until Colab gives you a new link.
 #>
 param(
-    [Parameter(Mandatory = $true)][string]$Url,
+    [string]$Url = "",
+    [string]$VideoFile = "",    # use a video already on disk instead of downloading -Url
     [string]$Server = "",
     [int]$Clips = 0,
     [switch]$UseChromeCookies,
@@ -31,6 +32,19 @@ try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch { }
 function Get-Json($uri) {
     $r = Invoke-WebRequest $uri -UseBasicParsing -TimeoutSec 60
     return ([Text.Encoding]::UTF8.GetString($r.RawContentStream.ToArray()) | ConvertFrom-Json)
+}
+# Colab answers 502 while its backend restarts; retry for ~2 minutes before giving up.
+function Invoke-Retry([scriptblock]$Action, [string]$What) {
+    for ($try = 1; $try -le 8; $try++) {
+        try { return & $Action } catch {
+            $code = 0
+            if ($_.Exception.Response) { $code = [int]$_.Exception.Response.StatusCode }
+            if ($code -ne 0 -and $code -lt 500) { throw }
+            Write-Host "  Colab not answering ($What, attempt $try/8), retrying in 15 s..." -ForegroundColor Yellow
+            Start-Sleep -Seconds 15
+        }
+    }
+    throw "Colab did not answer. Check the Colab tab: if it disconnected, re-run cell 1 and use the new link with -Server."
 }
 function Step($msg) { Write-Host "`n==> $msg" -ForegroundColor Cyan }
 function Have($cmd) { return [bool](Get-Command $cmd -ErrorAction SilentlyContinue) }
@@ -53,12 +67,13 @@ $ok = Read-Host "Do you own this video or have permission to use it? (y/n)"
 if ($ok -notmatch '^(y|yes)$') { Write-Host "Stopped: only clip videos you own or have rights to."; exit 1 }
 
 # --- Tools: yt-dlp + ffmpeg -------------------------------------------------
-if (-not (Have "yt-dlp") -or -not (Have "ffmpeg")) {
+$needYt = -not $VideoFile   # yt-dlp only matters when downloading from a link
+if (($needYt -and -not (Have "yt-dlp")) -or -not (Have "ffmpeg")) {
     Step "Installing yt-dlp and ffmpeg (one time)"
-    if (-not (Have "yt-dlp")) { winget install --id yt-dlp.yt-dlp -e --accept-source-agreements --accept-package-agreements | Out-Null }
+    if ($needYt -and -not (Have "yt-dlp")) { winget install --id yt-dlp.yt-dlp -e --accept-source-agreements --accept-package-agreements | Out-Null }
     if (-not (Have "ffmpeg")) { winget install --id Gyan.FFmpeg -e --accept-source-agreements --accept-package-agreements | Out-Null }
     $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
-    if (-not (Have "yt-dlp") -or -not (Have "ffmpeg")) {
+    if (($needYt -and -not (Have "yt-dlp")) -or -not (Have "ffmpeg")) {
         Write-Host "Installed. Close and reopen PowerShell, then run the same command again." -ForegroundColor Yellow
         exit 1
     }
@@ -68,6 +83,11 @@ if (-not (Have "yt-dlp") -or -not (Have "ffmpeg")) {
 $work = Join-Path $env:TEMP ("openshorts_" + [guid]::NewGuid().ToString("N").Substring(0, 8))
 New-Item -ItemType Directory -Path $work | Out-Null
 $src = Join-Path $work "source.mp4"
+if (-not $Url -and -not $VideoFile) { Write-Host "Give -Url (YouTube link) or -VideoFile (a video on disk)." -ForegroundColor Red; exit 1 }
+if ($VideoFile) {
+    if (-not (Test-Path $VideoFile)) { Write-Host "File not found: $VideoFile" -ForegroundColor Red; exit 1 }
+    $src = (Resolve-Path $VideoFile).Path
+} else {
 Step "Downloading the video (best quality up to 1080p)"
 $dlArgs = @("-f", "bv*[height<=1080][vcodec^=avc1]+ba[ext=m4a]/bv*[height<=1080]+ba/b[height<=1080]/b",
             "--merge-output-format", "mp4", "--no-playlist", "-o", $src)
@@ -77,6 +97,8 @@ if ($LASTEXITCODE -ne 0 -or -not (Test-Path $src)) {
     Write-Host "Download failed. If YouTube asks you to sign in, close Chrome fully and run again with -UseChromeCookies" -ForegroundColor Red
     exit 1
 }
+}
+$original = $src
 
 # --- Fit under the tunnel's upload limit ------------------------------------
 $sizeMB = (Get-Item $src).Length / 1MB
@@ -100,8 +122,15 @@ if ($sizeMB -gt $MaxUploadMB) {
 
 # --- Upload to OpenShorts ---------------------------------------------------
 Step ("Uploading {0:N0} MB to OpenShorts" -f ((Get-Item $src).Length / 1MB))
-$slot = Invoke-RestMethod -Method Post "$Server/api/uploads" -ContentType "application/json" -Body '{"filename":"source.mp4"}'
-Invoke-WebRequest -Method Put "$Server/api/uploads/$($slot.upload_id)" -InFile $src -ContentType "video/mp4" -TimeoutSec 3600 -UseBasicParsing | Out-Null
+try {
+    $slot = Invoke-Retry { Invoke-RestMethod -Method Post "$Server/api/uploads" -ContentType "application/json" -Body '{"filename":"source.mp4"}' } "reserve upload"
+    Invoke-Retry { Invoke-WebRequest -Method Put "$Server/api/uploads/$($slot.upload_id)" -InFile $src -ContentType "video/mp4" -TimeoutSec 3600 -UseBasicParsing | Out-Null } "upload" | Out-Null
+} catch {
+    Write-Host "`n$_" -ForegroundColor Red
+    Write-Host "Your video is saved, no need to download again. After fixing Colab, run:" -ForegroundColor Yellow
+    Write-Host "  powershell -ExecutionPolicy Bypass -File .\make_shorts.ps1 -VideoFile `"$original`" -Server `"NEW-COLAB-LINK`""
+    exit 1
+}
 
 # --- Start the job ----------------------------------------------------------
 $job = @{ upload_id = $slot.upload_id; acknowledged = $true; auto_hook = $true; captions = $true }
