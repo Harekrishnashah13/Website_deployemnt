@@ -29,6 +29,10 @@ sh("apt-get -qq update && apt-get -qq install -y ffmpeg fontconfig fonts-liberat
    "fonts-noto-color-emoji fonts-noto-core > /dev/null")
 if "v20" not in subprocess.run("node -v", shell=True, capture_output=True, text=True).stdout:
     sh("curl -fsSL https://deb.nodesource.com/setup_20.x | bash - > /dev/null && apt-get -qq install -y nodejs > /dev/null")
+if not os.path.exists("/usr/local/bin/deno"):  # yt-dlp needs a JS runtime for YouTube's challenges
+    sh("curl -fsSL https://github.com/denoland/deno/releases/latest/download/deno-x86_64-unknown-linux-gnu.zip "
+       "-o /tmp/deno.zip && python3 -c \"import zipfile; zipfile.ZipFile('/tmp/deno.zip').extract('deno', '/usr/local/bin')\" "
+       "&& chmod +x /usr/local/bin/deno")
 if not os.path.exists("/usr/local/bin/cloudflared"):
     sh("wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 "
        "-O /usr/local/bin/cloudflared && chmod +x /usr/local/bin/cloudflared")
@@ -56,7 +60,7 @@ step("Installing Python packages (~5-8 min the first time)")
 sh("pip install -q uv")
 sh(f"uv venv -q --allow-existing --python 3.11 {VENV}")
 sh(f'UV_HTTP_TIMEOUT=300 uv pip install -q --python {VENV}/bin/python -r requirements.txt '
-   f'"nvidia-cublas-cu12<13" "nvidia-cudnn-cu12>=9,<10" "yt-dlp[default]"')
+   f'"nvidia-cublas-cu12<13" "nvidia-cudnn-cu12>=9,<10" "yt-dlp[default]" bgutil-ytdlp-pot-provider')
 os.environ["MPLBACKEND"] = "Agg"  # Colab's inline plot backend crashes mediapipe in the 3.11 env
 print(sh(f'{VENV}/bin/python -c "import torch, mediapipe, faster_whisper; print(\'Python env OK, torch\', torch.__version__)"').strip())
 
@@ -67,6 +71,24 @@ sh("mkdir -p /usr/local/share/fonts/openshorts && cp fonts/*.ttf /usr/local/shar
 for patch in ("patch_script_fonts.py", "patch_gemini_retry.py"):
     sh(f"curl -fsSL {PATCHES}/{patch} -o /content/{patch}")
     print(sh(f"python /content/{patch} {APP}").strip())
+
+# 4b. YouTube: PO-token helper (as in OpenShorts' Docker image) + your cookies, if uploaded
+BGUTIL = "/content/bgutil/server/build/generate_once.js"
+if not os.path.exists(BGUTIL):
+    sh("rm -rf /content/bgutil && git clone -q --depth 1 https://github.com/Brainicism/bgutil-ytdlp-pot-provider /content/bgutil "
+       "&& cd /content/bgutil/server && npm install --no-audit --no-fund --loglevel=error > /dev/null && npx tsc")
+os.environ["BGUTIL_SCRIPT_PATH"] = BGUTIL
+# Optional: upload a cookies.txt (Colab Files panel, into /content) exported from youtube.com.
+# Only YouTube/Google cookies are kept: a full browser export is too big for an env var.
+if os.path.exists("/content/cookies.txt"):
+    keep = ["# Netscape HTTP Cookie File"] + [
+        ln for ln in open("/content/cookies.txt", encoding="utf-8", errors="ignore").read().splitlines()
+        if len(ln.split("\t")) >= 7 and re.search(r"(^|\.)(youtube|google)\.com$", ln.split("\t")[0].replace("#HttpOnly_", ""))]
+    os.environ["YOUTUBE_COOKIES"] = "\n".join(keep) + "\n"
+    os.makedirs("/app", exist_ok=True)  # OpenShorts writes the cookies to /app/cookies.txt
+    print(f"YouTube cookies loaded: {len(keep) - 1}")
+else:
+    print("No /content/cookies.txt: YouTube links may be blocked on Colab (upload files instead, or add cookies)")
 
 # 5. Dashboard: allow the tunnel hostname, pre-build (the dev server shows a black page through tunnels)
 step("Building the dashboard (~1 min)")
