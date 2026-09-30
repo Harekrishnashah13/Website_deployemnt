@@ -57,3 +57,7 @@ You can pick moments with a local model through Ollama instead. Uncomment `LLM_B
 OpenShorts draws the hook box with a Latin-only font and burns captions without complex text shaping. Hindi (and Gujarati, Bengali, Tamil, Arabic...) then shows as empty boxes, or with vowel signs on the wrong letter. The Colab notebook fixes both: it installs `fonts-noto-core`, then runs `openshorts/patch_script_fonts.py` (cells 3b and 3c). English clips look the same as before.
 
 For Docker, add `fonts-noto-core` to the `apt-get install` list in OpenShorts' `Dockerfile`, then run `python openshorts/patch_script_fonts.py <openshorts folder>` before `docker compose up --build`.
+
+## "Gemini ... 503 UNAVAILABLE: high demand"
+
+Google's servers were busy. By default OpenShorts tries each Gemini call once, so one busy moment fails the whole job. `openshorts/patch_gemini_retry.py` makes every Gemini call retry up to 6 times, 5–60 seconds apart. The Colab notebook applies it in cell 3c. If Google stays overloaded for several minutes, the job can still fail; wait a little and run it again.
