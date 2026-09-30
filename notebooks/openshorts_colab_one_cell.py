@@ -77,7 +77,13 @@ sh("cd dashboard && npm install --no-audit --no-fund --loglevel=error > /dev/nul
 # 6. (Re)start backend, dashboard and the two public links
 step("Starting OpenShorts")
 subprocess.run('pkill -f "[u]vicorn app:app"; pkill -f "[n]ode.*vite"; pkill -f "[c]loudflared"', shell=True)
-time.sleep(3)
+# OpenShorts keeps serving ~20 s after SIGTERM (graceful drain); wait until the
+# old backend has really released port 8000, or the new one fails to bind.
+for _ in range(60):
+    if subprocess.run("pgrep -f '[u]vicorn app:app'", shell=True, capture_output=True).returncode != 0:
+        break
+    time.sleep(1)
+time.sleep(2)
 nv = f"{VENV}/lib/python3.11/site-packages/nvidia"
 os.environ["LD_LIBRARY_PATH"] = ":".join(f"{nv}/{d}/lib" for d in ("cublas", "cudnn", "cuda_runtime", "cu13")) \
     + ":" + os.environ.get("LD_LIBRARY_PATH", "")
