@@ -24,7 +24,10 @@ param(
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"   # Invoke-WebRequest is very slow with the progress bar on
 
-$ServerFile = Join-Path $HOME ".openshorts_server"
+# Everything lives next to this script (e.g. F:\Openshort\openshorts-main): nothing on C:.
+$ServerFile = Join-Path $PSScriptRoot ".openshorts_server"
+$oldServerFile = Join-Path $HOME ".openshorts_server"
+if (-not (Test-Path $ServerFile) -and (Test-Path $oldServerFile)) { Copy-Item $oldServerFile $ServerFile }
 
 # Windows PowerShell 5.1 decodes JSON without a charset as Latin-1, turning Hindi
 # into "à¤..." garbage; read the bytes as UTF-8 ourselves and print UTF-8.
@@ -80,7 +83,13 @@ if (($needYt -and -not (Have "yt-dlp")) -or -not (Have "ffmpeg")) {
 }
 
 # --- Download on this PC ----------------------------------------------------
-$work = Join-Path $env:TEMP ("openshorts_" + [guid]::NewGuid().ToString("N").Substring(0, 8))
+# Temporary full-length download, kept next to the script (not C:\...\Temp) and
+# deleted once the shorts are saved. Leftovers from failed runs go after 3 days.
+$tempRoot = Join-Path $PSScriptRoot "temp"
+New-Item -ItemType Directory -Path $tempRoot -Force | Out-Null
+Get-ChildItem $tempRoot -Directory -Filter "openshorts_*" -ErrorAction SilentlyContinue |
+    Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-3) } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+$work = Join-Path $tempRoot ("openshorts_" + [guid]::NewGuid().ToString("N").Substring(0, 8))
 New-Item -ItemType Directory -Path $work | Out-Null
 $src = Join-Path $work "source.mp4"
 if (-not $Url -and -not $VideoFile) { Write-Host "Give -Url (YouTube link) or -VideoFile (a video on disk)." -ForegroundColor Red; exit 1 }
@@ -90,7 +99,7 @@ if ($VideoFile) {
 } else {
 Step "Downloading the video (best quality up to 1080p)"
 $dlArgs = @("-f", "bv*[height<=1080][vcodec^=avc1]+ba[ext=m4a]/bv*[height<=1080]+ba/b[height<=1080]/b",
-            "--merge-output-format", "mp4", "--no-playlist", "-o", $src)
+            "--merge-output-format", "mp4", "--no-playlist", "--no-cache-dir", "-o", $src)
 if ($UseChromeCookies) { $dlArgs += @("--cookies-from-browser", "chrome") }
 & yt-dlp @dlArgs $Url
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path $src)) {

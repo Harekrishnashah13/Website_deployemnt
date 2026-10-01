@@ -64,7 +64,7 @@ Google's servers were busy. By default OpenShorts tries each Gemini call once, s
 
 ## Paste a YouTube link, get shorts (free)
 
-YouTube blocks downloads from Colab, but not from your home internet. `openshorts/make_shorts.ps1` downloads the video on your Windows PC, uploads it to your OpenShorts on Colab, waits, and saves the finished shorts to a `shorts` folder next to the script:
+YouTube blocks downloads from Colab, but not from your home internet. `openshorts/make_shorts.ps1` downloads the video on your Windows PC, uploads it to your OpenShorts on Colab, waits, and saves the finished shorts to a `shorts` folder next to the script. The temporary full-length download goes to `temp\` next to the script, not C:, and is deleted once the shorts are saved:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File make_shorts.ps1 -Url "https://youtu.be/..." -Server "https://xxxx.trycloudflare.com"
