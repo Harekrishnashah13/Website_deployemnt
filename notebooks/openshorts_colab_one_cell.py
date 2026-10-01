@@ -1,10 +1,23 @@
 #@title OpenShorts on Colab: complete setup in ONE cell (paste into an empty Colab cell)
-# Runtime -> Change runtime type -> T4 GPU, then paste your Gemini key below and run.
+# Runtime -> Change runtime type -> T4 GPU, then run.
+# Keys: save them ONCE in Colab Secrets (key icon in the left sidebar) as GEMINI_API_KEY
+# (and optionally UPLOAD_POST_API_KEY), with "Notebook access" on. Then leave this box empty.
 # Safe to re-run: it skips what is already installed and restarts the servers.
 GEMINI_API_KEY = ""  #@param {type:"string"}
 WHISPER_MODEL = "large-v3-turbo"  #@param ["small", "medium", "large-v3-turbo"]
 
 import os, re, subprocess, time
+
+def colab_secret(name):
+    """A key saved in Colab Secrets (key icon, left sidebar), or "" if not set/allowed."""
+    try:
+        from google.colab import userdata
+        return (userdata.get(name) or "").strip()
+    except Exception:
+        return ""
+
+GEMINI_API_KEY = GEMINI_API_KEY.strip() or colab_secret("GEMINI_API_KEY")
+UPLOAD_POST_API_KEY = colab_secret("UPLOAD_POST_API_KEY")
 
 PATCHES = "https://raw.githubusercontent.com/Harekrishnashah13/Website_deployemnt/claude/trusting-franklin-jtrzg6/openshorts"
 APP = "/content/openshorts"
@@ -50,10 +63,14 @@ settings = {
     "FFMPEG_ENCODER": "auto",
     "GEMINI_RETRY_ATTEMPTS": "6",
 }
+if UPLOAD_POST_API_KEY:
+    settings["UPLOAD_POST_API_KEY"] = UPLOAD_POST_API_KEY
 with open(".env", "w") as f:
     f.writelines(f"{k}={v}\n" for k, v in settings.items())
-if not GEMINI_API_KEY:
-    print("No Gemini key set here: add it later in the dashboard under Settings.")
+if GEMINI_API_KEY:
+    print("Gemini key: loaded" + (" | Upload-Post key: loaded" if UPLOAD_POST_API_KEY else ""))
+else:
+    print("No Gemini key: save it once in Colab Secrets (key icon, left sidebar) as GEMINI_API_KEY, then re-run.")
 
 # 3. Python 3.11 environment (OpenShorts' pinned packages don't exist for Colab's newer Python)
 step("Installing Python packages (~5-8 min the first time)")
