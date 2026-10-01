@@ -70,4 +70,4 @@ YouTube blocks downloads from Colab, but not from your home internet. `openshort
 powershell -ExecutionPolicy Bypass -File make_shorts.ps1 -Url "https://youtu.be/..." -Server "https://xxxx.trycloudflare.com"
 ```
 
-`-Server` is the Dashboard or MCP link the Colab one-cell setup prints, and the script remembers it for next time. It installs yt-dlp and ffmpeg with winget the first time it runs. Videos over about 95 MB are compressed first, because Cloudflare's free tunnel rejects bigger uploads. Other options: `-Clips 5` asks for about 5 shorts, and `-UseChromeCookies` helps if YouTube asks you to sign in.
+`-Server` is the Dashboard or MCP link the Colab one-cell setup prints, and the script remembers it for next time. It installs yt-dlp and ffmpeg with winget the first time it runs. Videos over about 95 MB (the free Cloudflare tunnel's upload limit) are cut into parts without re-encoding, so there is no quality loss. Each part is processed separately, and all the shorts land in one folder. Other options: `-Clips 5` asks for about 5 shorts, and `-UseChromeCookies` helps if YouTube asks you to sign in.

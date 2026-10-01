@@ -109,82 +109,107 @@ if ($LASTEXITCODE -ne 0 -or -not (Test-Path $src)) {
 }
 $original = $src
 
-# --- Fit under the tunnel's upload limit ------------------------------------
+# --- Fit under the tunnel's upload limit: split, don't shrink ---------------
+# Cloudflare's free tunnel takes ~100 MB per upload. Long videos are cut into
+# parts with stream copy (no re-encode, full quality) and each part becomes its
+# own OpenShorts job; all shorts land in one folder.
+$parts = @($src)
 $sizeMB = (Get-Item $src).Length / 1MB
 if ($sizeMB -gt $MaxUploadMB) {
     $duration = [double](& ffprobe -v error -show_entries format=duration -of csv=p=0 $src)
-    $totalKbps = [math]::Floor(($MaxUploadMB * 8192 * 0.95) / $duration)
-    $videoKbps = $totalKbps - 128
-    $scale = "-2:1080"
-    if ($videoKbps -lt 2500) { $scale = "-2:720" }
-    if ($videoKbps -lt 600) {
-        Write-Host ("This video is too long to send through the free tunnel (limit ~{0} MB). Try a video under ~20 minutes." -f $MaxUploadMB) -ForegroundColor Red
-        exit 1
+    $n = [math]::Ceiling($sizeMB / ($MaxUploadMB * 0.8))
+    for ($attempt = 0; $attempt -lt 5; $attempt++) {
+        $segSeconds = [math]::Ceiling($duration / $n)
+        Step ("Video is {0:N0} MB: splitting into {1} parts of ~{2} min (no quality loss)" -f $sizeMB, $n, [math]::Round($segSeconds / 60, 1))
+        Get-ChildItem $work -Filter "part_*.mp4" -ErrorAction SilentlyContinue | Remove-Item -Force
+        & ffmpeg -hide_banner -loglevel error -y -i $src -map 0:v:0 -map 0:a:0? -c copy -f segment `
+            -segment_time $segSeconds -reset_timestamps 1 (Join-Path $work "part_%02d.mp4")
+        if ($LASTEXITCODE -ne 0) { Write-Host "Splitting failed." -ForegroundColor Red; exit 1 }
+        $files = @(Get-ChildItem $work -Filter "part_*.mp4" | Sort-Object Name)
+        if (-not ($files | Where-Object { $_.Length / 1MB -gt $MaxUploadMB })) { break }
+        $n++   # a cut landed late on a keyframe and a part is still too big: cut finer
     }
-    Step ("Compressing {0:N0} MB to fit the {1} MB upload limit ({2} kbps, {3}p)" -f $sizeMB, $MaxUploadMB, $videoKbps, $scale.Split(":")[1])
-    $small = Join-Path $work "upload.mp4"
-    & ffmpeg -hide_banner -loglevel error -stats -y -i $src -vf "scale=$scale" -c:v libx264 -preset medium `
-        -b:v "${videoKbps}k" -maxrate "${videoKbps}k" -bufsize "$($videoKbps * 2)k" -c:a aac -b:a 128k -movflags +faststart $small
-    if ($LASTEXITCODE -ne 0) { Write-Host "Compression failed." -ForegroundColor Red; exit 1 }
-    $src = $small
+    # OpenShorts needs at least ~45 s of material per job; drop a tiny tail part.
+    $parts = @($files | Where-Object {
+        [double](& ffprobe -v error -show_entries format=duration -of csv=p=0 $_.FullName) -ge 50
+    } | ForEach-Object { $_.FullName })
+    if (-not $parts) { Write-Host "Could not split the video into usable parts." -ForegroundColor Red; exit 1 }
 }
 
-# --- Upload to OpenShorts ---------------------------------------------------
-Step ("Uploading {0:N0} MB to OpenShorts" -f ((Get-Item $src).Length / 1MB))
-try {
-    $slot = Invoke-Retry { Invoke-RestMethod -Method Post "$Server/api/uploads" -ContentType "application/json" -Body '{"filename":"source.mp4"}' } "reserve upload"
-    Invoke-Retry { Invoke-WebRequest -Method Put "$Server/api/uploads/$($slot.upload_id)" -InFile $src -ContentType "video/mp4" -TimeoutSec 3600 -UseBasicParsing | Out-Null } "upload" | Out-Null
-} catch {
-    Write-Host "`n$_" -ForegroundColor Red
-    Write-Host "Your video is saved, no need to download again. After fixing Colab, run:" -ForegroundColor Yellow
+if (-not $OutDir) { $OutDir = Join-Path $PSScriptRoot "shorts" }
+New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
+$dest = Join-Path $OutDir ("shorts_" + (Get-Date -Format "yyyyMMdd_HHmmss"))
+
+function Invoke-Part([string]$file, [int]$index, [int]$total) {
+    $label = ""
+    if ($total -gt 1) { $label = " (part $index of $total)" }
+
+    Step ("Uploading {0:N0} MB to OpenShorts{1}" -f ((Get-Item $file).Length / 1MB), $label)
+    try {
+        $slot = Invoke-Retry { Invoke-RestMethod -Method Post "$Server/api/uploads" -ContentType "application/json" -Body '{"filename":"source.mp4"}' } "reserve upload"
+        Invoke-Retry { Invoke-WebRequest -Method Put "$Server/api/uploads/$($slot.upload_id)" -InFile $file -ContentType "video/mp4" -TimeoutSec 3600 -UseBasicParsing | Out-Null } "upload" | Out-Null
+    } catch {
+        Write-Host "`n$_" -ForegroundColor Red
+        return $false
+    }
+
+    $job = @{ upload_id = $slot.upload_id; acknowledged = $true; auto_hook = $true; captions = $true }
+    if ($Clips -gt 0) { $job.target_clips = $Clips }
+    try {
+        $started = Invoke-RestMethod -Method Post "$Server/api/process" -ContentType "application/json" -Body ($job | ConvertTo-Json)
+    } catch {
+        Write-Host "OpenShorts refused the job: $($_.ErrorDetails.Message)" -ForegroundColor Red
+        return $false
+    }
+    $jobId = $started.job_id
+    Step "Making shorts$label (job $jobId). Usually a few minutes on the Colab GPU..."
+
+    $seen = 0
+    while ($true) {
+        Start-Sleep -Seconds 15
+        try { $st = Get-Json "$Server/api/status/$jobId" } catch { Write-Host "  (can't reach Colab, retrying...)"; continue }
+        $logs = @($st.logs)
+        for ($i = $seen; $i -lt $logs.Count; $i++) {
+            $line = ([string]$logs[$i]).Trim()
+            if ($line -and $line -notmatch '^(\[debug\]|\[\d+\.\d+s ->|W0000|INFO:|WARNING: All log|Warning: You are sending|\^|File "|Creating new Ultralytics|View Ultralytics|Update Settings|Analyzing Scenes)') {
+                if ($line.Length -gt 140) { $line = $line.Substring(0, 140) + "..." }
+                Write-Host "  $line"
+            }
+        }
+        $seen = $logs.Count
+        if ($st.status -eq "completed") { break }
+        if ($st.status -eq "failed") {
+            Write-Host "`nThe job failed. Last log lines:" -ForegroundColor Red
+            $logs | Select-Object -Last 8 | ForEach-Object { Write-Host "  $_" }
+            return $false
+        }
+    }
+
+    $target = $dest
+    if ($total -gt 1) { $target = Join-Path $dest "part$index" }
+    $zip = Join-Path $work "shorts_$index.zip"
+    Step "Downloading your shorts$label"
+    Invoke-Retry { Invoke-WebRequest "$Server/api/jobs/$jobId/download-all" -OutFile $zip -TimeoutSec 3600 -UseBasicParsing } "download" | Out-Null
+    Expand-Archive -Path $zip -DestinationPath $target -Force
+    Remove-Item $zip -Force -ErrorAction SilentlyContinue
+    return $true
+}
+
+$ok = 0
+for ($k = 0; $k -lt $parts.Count; $k++) {
+    if (Invoke-Part $parts[$k] ($k + 1) $parts.Count) { $ok++ }
+}
+
+if ($ok -eq 0) {
+    Write-Host "`nNo shorts were made. Your video is saved, no need to download again. After fixing Colab, run:" -ForegroundColor Yellow
     Write-Host "  powershell -ExecutionPolicy Bypass -File .\make_shorts.ps1 -VideoFile `"$original`" -Server `"NEW-COLAB-LINK`""
     exit 1
 }
-
-# --- Start the job ----------------------------------------------------------
-$job = @{ upload_id = $slot.upload_id; acknowledged = $true; auto_hook = $true; captions = $true }
-if ($Clips -gt 0) { $job.target_clips = $Clips }
-try {
-    $started = Invoke-RestMethod -Method Post "$Server/api/process" -ContentType "application/json" -Body ($job | ConvertTo-Json)
-} catch {
-    $detail = $_.ErrorDetails.Message
-    Write-Host "OpenShorts refused the job: $detail" -ForegroundColor Red
-    exit 1
+if ($ok -lt $parts.Count) {
+    Write-Host ("`n{0} of {1} parts worked; the video is kept at {2} so you can retry with -VideoFile." -f $ok, $parts.Count, $original) -ForegroundColor Yellow
+} else {
+    Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue
 }
-$jobId = $started.job_id
-Step "Making shorts (job $jobId). Usually a few minutes on the Colab GPU..."
-
-# --- Wait -------------------------------------------------------------------
-$seen = 0
-while ($true) {
-    Start-Sleep -Seconds 15
-    try { $st = Get-Json "$Server/api/status/$jobId" } catch { Write-Host "  (can't reach Colab, retrying...)"; continue }
-    $logs = @($st.logs)
-    for ($i = $seen; $i -lt $logs.Count; $i++) {
-        $line = ([string]$logs[$i]).Trim()
-        if ($line -and $line -notmatch '^(\[debug\]|\[\d+\.\d+s ->|W0000|INFO:|WARNING: All log|Warning: You are sending|\^|File "|Creating new Ultralytics|View Ultralytics|Update Settings|Analyzing Scenes)') {
-            if ($line.Length -gt 140) { $line = $line.Substring(0, 140) + "..." }
-            Write-Host "  $line"
-        }
-    }
-    $seen = $logs.Count
-    if ($st.status -eq "completed") { break }
-    if ($st.status -eq "failed") {
-        Write-Host "`nThe job failed. Last log lines:" -ForegroundColor Red
-        $logs | Select-Object -Last 8 | ForEach-Object { Write-Host "  $_" }
-        exit 1
-    }
-}
-
-# --- Download the shorts ----------------------------------------------------
-if (-not $OutDir) { $OutDir = Join-Path $PSScriptRoot "shorts" }
-New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
-$dest = Join-Path $OutDir "shorts_$($jobId.Substring(0, 8))"
-$zip = "$dest.zip"
-Step "Downloading your shorts"
-Invoke-WebRequest "$Server/api/jobs/$jobId/download-all" -OutFile $zip -TimeoutSec 3600 -UseBasicParsing
-Expand-Archive -Path $zip -DestinationPath $dest -Force
-Remove-Item $zip, $work -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host "`nDone! Your shorts are in: $dest" -ForegroundColor Green
 Write-Host "Post them: YouTube app -> + -> Upload a video (vertical and under 3 min = a Short)."
 try { Start-Process explorer.exe $dest } catch { }
