@@ -140,6 +140,27 @@ if (-not $OutDir) { $OutDir = Join-Path $PSScriptRoot "shorts" }
 New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
 $dest = Join-Path $OutDir ("shorts_" + (Get-Date -Format "yyyyMMdd_HHmmss"))
 
+# Gemini already writes post text for every clip; save it next to the videos,
+# in the same order as the zip (clip_01, clip_02, ...), ready to copy-paste.
+function Save-Captions($status, [string]$folder) {
+    $clips = @()
+    if ($status.result -and $status.result.clips) { $clips = @($status.result.clips) }
+    if (-not $clips) { return }
+    $sb = New-Object System.Text.StringBuilder
+    for ($c = 0; $c -lt $clips.Count; $c++) {
+        $x = $clips[$c]
+        [void]$sb.AppendLine(("===== clip_{0:D2} =====" -f ($c + 1)))
+        if ($x.viral_hook_text) { [void]$sb.AppendLine("HOOK (first 3 seconds): $($x.viral_hook_text)") }
+        if ($x.video_title_for_youtube_short) { [void]$sb.AppendLine("YOUTUBE SHORTS TITLE: $($x.video_title_for_youtube_short)") }
+        if ($x.video_description_for_instagram) { [void]$sb.AppendLine("INSTAGRAM CAPTION:"); [void]$sb.AppendLine([string]$x.video_description_for_instagram) }
+        if ($x.video_description_for_tiktok) { [void]$sb.AppendLine("TIKTOK / YOUTUBE DESCRIPTION:"); [void]$sb.AppendLine([string]$x.video_description_for_tiktok) }
+        [void]$sb.AppendLine("")
+    }
+    $file = Join-Path $folder "captions.txt"
+    [IO.File]::WriteAllText($file, $sb.ToString(), (New-Object System.Text.UTF8Encoding($true)))
+    Write-Host "  Titles, captions and hooks saved to $file"
+}
+
 function Invoke-Part([string]$file, [int]$index, [int]$total) {
     $label = ""
     if ($total -gt 1) { $label = " (part $index of $total)" }
@@ -192,6 +213,7 @@ function Invoke-Part([string]$file, [int]$index, [int]$total) {
     Invoke-Retry { Invoke-WebRequest "$Server/api/jobs/$jobId/download-all" -OutFile $zip -TimeoutSec 3600 -UseBasicParsing } "download" | Out-Null
     Expand-Archive -Path $zip -DestinationPath $target -Force
     Remove-Item $zip -Force -ErrorAction SilentlyContinue
+    Save-Captions $st $target
     return $true
 }
 
