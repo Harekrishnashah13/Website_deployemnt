@@ -18,6 +18,7 @@ param(
     [string]$Server = "",
     [int]$Clips = 0,
     [switch]$UseChromeCookies,
+    [int]$MaxHeight = 1080,     # source resolution cap; 1440 gives sharper vertical crops (bigger files)
     [string]$OutDir = "",       # where the shorts go; default: a "shorts" folder next to this script
     [double]$MaxUploadMB = 95   # Cloudflare's free tunnel rejects request bodies over 100 MB
 )
@@ -97,8 +98,11 @@ if ($VideoFile) {
     if (-not (Test-Path $VideoFile)) { Write-Host "File not found: $VideoFile" -ForegroundColor Red; exit 1 }
     $src = (Resolve-Path $VideoFile).Path
 } else {
-Step "Downloading the video (best quality up to 1080p)"
-$dlArgs = @("-f", "bv*[height<=1080][vcodec^=avc1]+ba[ext=m4a]/bv*[height<=1080]+ba/b[height<=1080]/b",
+Step "Downloading the video (best quality up to ${MaxHeight}p)"
+# Highest resolution in ANY codec. Requiring H.264 (avc1) used to fall back to
+# 720p/480p, because YouTube often serves 1080p+ only as VP9/AV1, and the 9:16
+# crop then had to stretch a ~405 px wide slice to 1080 px (blurry shorts).
+$dlArgs = @("-f", "bv*[height<=$MaxHeight]+ba/b[height<=$MaxHeight]/b", "-S", "res,fps,vcodec:h264,acodec:m4a",
             "--merge-output-format", "mp4", "--no-playlist", "--no-cache-dir", "-o", $src)
 if ($UseChromeCookies) { $dlArgs += @("--cookies-from-browser", "chrome") }
 & yt-dlp @dlArgs $Url
