@@ -1,12 +1,16 @@
 """X / Twitter collection.
 
-Two routes:
+Three routes:
   1. scrape(): official API v2 recent search (last 7 days). Needs X_BEARER_TOKEN
      on a tier that includes search (Basic or higher; Free has no search).
-  2. load_export(): normalise a CSV/JSON export you collected elsewhere
+  2. scrape_twscrape(): X's own web search via twscrape, logged in with the cookies
+     of your X account (X_USERNAME + X_COOKIES). Free, but against X's terms of
+     service, so use a spare account: X can lock accounts that scrape.
+  3. load_export(): normalise a CSV/JSON export you collected elsewhere
      (e.g. an Apify/X-export dataset, or tweets saved by hand) into the same schema.
 """
 
+import asyncio
 import os
 import time
 
@@ -83,6 +87,56 @@ def scrape(query=None, max_tweets=1000):
         params["next_token"] = next_token
         time.sleep(1.1)
     return [r for r in records[:max_tweets] if is_relevant(r.text)]
+
+
+def parse_twscrape_tweet(t, query=""):
+    """twscrape Tweet object -> Record."""
+    return Record(
+        platform="x",
+        kind="tweet",
+        id=str(t.id),
+        parent_id=str(t.conversationId or ""),
+        created_utc=t.date.isoformat(),
+        author_hash=hash_author(t.user.username),
+        community="",
+        title="",
+        text=clean_text(t.rawContent),
+        score=int(t.likeCount or 0),
+        num_replies=int(t.replyCount or 0),
+        url=t.url,
+        query=query,
+    )
+
+
+async def _twscrape_search(query, max_tweets, db_path):
+    from twscrape import API  # optional dependency
+
+    api = API(db_path)
+    username, cookies = os.getenv("X_USERNAME"), os.getenv("X_COOKIES")
+    if username and cookies:
+        accounts = {a.username for a in await api.pool.get_all()}
+        if username not in accounts:
+            await api.pool.add_account_cookies(username, cookies)
+    records = []
+    async for t in api.search(query, limit=max_tweets):
+        records.append(parse_twscrape_tweet(t, query))
+        if len(records) % 100 == 0:
+            print(f"  X: {len(records)} tweets")
+    return records
+
+
+def scrape_twscrape(query=None, max_tweets=1000, since=None, db_path="data/twscrape_accounts.db"):
+    """Search X's "Latest" tab. `since` is an optional YYYY-MM-DD lower bound."""
+    if not (os.getenv("X_USERNAME") and os.getenv("X_COOKIES")) and not os.path.exists(db_path):
+        print("X: set X_USERNAME and X_COOKIES (see README) to use twscrape, skipping")
+        return []
+    os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
+    query = query or config.X_WEB_QUERY
+    if since:
+        query += f" since:{since}"
+    records = asyncio.run(_twscrape_search(query, max_tweets, db_path))
+    print(f"  X: {len(records)} tweets fetched")
+    return [r for r in records if is_relevant(r.text)]
 
 
 # Column names used by common export tools, mapped to our schema.

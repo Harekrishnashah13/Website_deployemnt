@@ -41,6 +41,15 @@ X_QUERY = (
     "-is:retweet lang:en"
 )
 
+# Same search in X's web search syntax, used by the twscrape collector
+# ("Latest" tab, so the newest tweets come first).
+X_WEB_QUERY = (
+    '("trade deal" OR "trade agreement" OR "trade talks" OR tariff OR tariffs OR BTA) '
+    "(India OR Indian OR Modi OR Goyal) "
+    "(US OR USA OR America OR American OR Trump OR Washington) "
+    "lang:en -filter:retweets"
+)
+
 # Relevance filter applied to posts/tweets. A text must hit one term from each group
 # (US group = US_TERMS or US_TERMS_CASED).
 INDIA_TERMS = r"\b(india|indian|indians|modi|goyal|new delhi|delhi|bharat|indo)\b"

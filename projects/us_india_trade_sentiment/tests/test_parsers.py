@@ -84,3 +84,23 @@ def test_twitter_parser_and_export(tmp_path):
     ).to_csv(path, index=False)
     recs = twitter.load_export(str(path))
     assert [r.id for r in recs] == ["9"] and recs[0].score == 7
+
+
+def test_twscrape_parser():
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+
+    t = SimpleNamespace(
+        id=123,
+        conversationId=120,
+        date=datetime(2026, 10, 8, 9, 30, tzinfo=timezone.utc),
+        user=SimpleNamespace(username="bob"),
+        rawContent="Trump says India trade deal is close https://t.co/x",
+        likeCount=12,
+        replyCount=4,
+        url="https://x.com/bob/status/123",
+    )
+    r = twitter.parse_twscrape_tweet(t, "q")
+    assert (r.id, r.parent_id, r.score, r.num_replies) == ("123", "120", 12, 4)
+    assert r.text == "Trump says India trade deal is close"
+    assert r.created_utc.startswith("2026-10-08T09:30") and r.author_hash != "bob"

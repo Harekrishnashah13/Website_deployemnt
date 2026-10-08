@@ -19,6 +19,7 @@ cp .env.example .env   # then fill in the keys you have
 | --- | --- | --- |
 | Reddit | Optional, but strongly recommended | https://www.reddit.com/prefs/apps → "create another app" → type **script**. Put the id (under the app name) and secret in `.env`. With keys you get ~100 req/min. Without keys the scraper uses anonymous endpoints (~10 req/min), and Reddit often blocks those. |
 | X API | Optional | https://developer.x.com. The **Free tier cannot search**; recent search needs Basic or higher and only covers the **last 7 days**. |
+| X login cookies (twscrape) | Free alternative to the API | See "X without the paid API" below. |
 | X export | Alternative to the API | Any CSV/JSON of tweets (an Apify "Tweet Scraper" run, a manual export, etc.). Pass it with `--x-export file.csv`. Common column names (`full_text`, `likeCount`, `createdAt`, …) are mapped automatically. |
 
 ## Run
@@ -47,6 +48,33 @@ os.environ["REDDIT_CLIENT_ID"] = "..."
 os.environ["REDDIT_CLIENT_SECRET"] = "..."
 !python scrape.py --no-x
 ```
+
+## X without the paid API (twscrape)
+
+`--x-source twscrape` searches X's **Latest** tab the same way the website does, logged in as your
+account. The tweets are real and current. Scraping this way is against X's terms of service, and X
+can lock or suspend accounts that do it, so **use a spare X account, not your main one**.
+
+1. Log in to that account at https://x.com in Chrome.
+2. Press F12 → **Application** tab → **Cookies** → `https://x.com`.
+3. Copy the values of `auth_token` and `ct0`.
+4. Set them (in `.env`, or `os.environ[...]` in Colab):
+   ```
+   X_USERNAME=your_spare_handle
+   X_COOKIES=auth_token=PASTE_HERE; ct0=PASTE_HERE
+   ```
+5. Run:
+   ```bash
+   python scrape.py --no-reddit --x-source twscrape --max-tweets 2000 --x-since 2026-09-01
+   python scrape.py --no-reddit --x-source twscrape --x-every 30   # live: every 30 min until Ctrl+C
+   ```
+
+Live mode appends only new tweets to `data/raw/x_live.csv`, so you can leave it running for days
+and build a time series. The cookies are as sensitive as a password: anyone with them is logged in
+as you. Never commit or share them. Logging out of X in that browser invalidates them.
+
+If X rate-limits the account, twscrape waits for the limit to reset (about 15 minutes) and then
+continues.
 
 ## Output schema
 
