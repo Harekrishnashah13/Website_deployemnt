@@ -72,9 +72,13 @@ def scrape(query=None, max_tweets=1000):
             print(f"  X rate limited, waiting {wait:.0f}s")
             time.sleep(wait)
             continue
-        if resp.status_code in (401, 403):
+        if resp.status_code in (401, 402, 403):
             print(f"  X {resp.status_code}: {resp.text[:200]}")
-            print("  Your token/tier probably lacks search access.")
+            print({
+                401: "  Token rejected: copy the Bearer Token again (or regenerate it).",
+                402: "  No API credits left: add credits in the X developer console, or use --x-source twscrape.",
+                403: "  Your plan has no search access: upgrade it, or use --x-source twscrape.",
+            }[resp.status_code])
             break
         resp.raise_for_status()
         payload = resp.json()
