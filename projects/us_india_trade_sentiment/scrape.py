@@ -31,6 +31,7 @@ def main():
     ap.add_argument("--x-export", action="append", default=[], help="CSV/JSON tweet export (repeatable)")
     ap.add_argument("--x-source", choices=["api", "twscrape"], default="api",
                     help="api = official X API (X_BEARER_TOKEN); twscrape = your X login cookies")
+    ap.add_argument("--x-query", help="override the X search query from config.py")
     ap.add_argument("--x-since", help="only tweets on/after YYYY-MM-DD (twscrape)")
     ap.add_argument("--x-every", type=float, metavar="MINUTES",
                     help="keep running and fetch new tweets every N minutes into x_live.csv")
@@ -67,8 +68,8 @@ def main():
 
 def fetch_x(args):
     if args.x_source == "twscrape":
-        return twitter.scrape_twscrape(max_tweets=args.max_tweets, since=args.x_since)
-    return twitter.scrape(max_tweets=args.max_tweets)
+        return twitter.scrape_twscrape(args.x_query, max_tweets=args.max_tweets, since=args.x_since)
+    return twitter.scrape(args.x_query, max_tweets=args.max_tweets)
 
 
 def watch_x(args):
