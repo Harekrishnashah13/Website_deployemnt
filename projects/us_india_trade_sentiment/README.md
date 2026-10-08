@@ -107,14 +107,14 @@ on-topic thread.
 
 ## Analysis notebook
 
-`US_India_Trade_Sentiment_Analysis.ipynb` (open in Google Colab) takes the scraped `x_all.csv` and runs:
+`US_India_Trade_Sentiment_Analysis.ipynb` (open in Google Colab) takes the scraped `x_all.csv` and explains the
+*logic* of every step. `architecture.png` is the pipeline diagram it draws.
 
-1. **Cleaning:** collection window, exact and near-duplicates, posts over 1,000 characters, at most 3 posts per author.
-2. **Part A, classic NLP:** TF-IDF keywords, VADER sentiment, a TF-IDF + Logistic Regression sentiment model, and NMF topics.
-3. **Part B, LLM:** Google Gemini (free tier) labels every post (sentiment, topic, sarcasm, reason) with structured
-   JSON output, then writes a summary of the community conversation. Needs a free API key from aistudio.google.com.
-   It sends 50 posts per request, paces requests, and saves progress to `llm_labels.csv` after every request.
-   If the free daily limit is reached, run the cell again later and it continues where it stopped.
-4. **Part C, comparison:** sentiment mix by method, agreement and Cohen's kappa, confusion matrices,
-   disagreement examples, NMF-vs-LLM topic match, and daily net sentiment.
-5. **Insights and conclusion.**
+1. **Architecture:** diagram and component table.
+2. **Cleaning:** collection window, exact and near-duplicates, posts over 1,000 characters, at most 3 posts per author.
+3. **Part A, classic NLP:** TF-IDF, **feature engineering** (TF-IDF + 12 hand-crafted features, with a leakage warning),
+   VADER, Logistic Regression (with a worked example of one prediction), and NMF topics.
+4. **Part B, LLM:** a Llama model via the **Groq API** (free key from console.groq.com) labels every post with JSON output.
+   It paces itself to the tokens-per-minute limit and saves progress to `llm_labels.csv` after every request.
+5. **Part C, comparison:** agreement, Cohen's kappa, confusion matrices, disagreement examples, and topic match.
+6. **Insights and conclusion.**
