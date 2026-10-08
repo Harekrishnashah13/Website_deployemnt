@@ -18,7 +18,7 @@ import pandas as pd
 import requests
 
 import config
-from scrapers.common import Record, clean_text, hash_author, is_relevant
+from scrapers.common import Record, clean_text, hash_author, is_relevant, to_frame
 
 SEARCH_URL = "https://api.twitter.com/2/tweets/search/recent"
 
@@ -112,7 +112,7 @@ def parse_twscrape_tweet(t, query=""):
     )
 
 
-async def _twscrape_search(query, max_tweets, db_path):
+async def _twscrape_search(query, max_tweets, db_path, checkpoint=None):
     from twscrape import API  # optional dependency
 
     api = API(db_path)
@@ -125,12 +125,19 @@ async def _twscrape_search(query, max_tweets, db_path):
     async for t in api.search(query, limit=max_tweets):
         records.append(parse_twscrape_tweet(t, query))
         if len(records) % 100 == 0:
-            print(f"  X: {len(records)} tweets")
+            print(f"  X: {len(records)} tweets", flush=True)
+            if checkpoint:
+                # Saved as we go, so stopping the run early keeps what was collected.
+                to_frame([r for r in records if is_relevant(r.text)]).to_csv(checkpoint, index=False)
     return records
 
 
-def scrape_twscrape(query=None, max_tweets=1000, since=None, db_path="data/twscrape_accounts.db"):
-    """Search X's "Latest" tab. `since` is an optional YYYY-MM-DD lower bound."""
+def scrape_twscrape(query=None, max_tweets=1000, since=None, db_path="data/twscrape_accounts.db",
+                    checkpoint=None):
+    """Search X's "Latest" tab. `since` is an optional YYYY-MM-DD lower bound.
+
+    With `checkpoint`, relevant tweets are also written to that CSV every 100 tweets.
+    """
     if not (os.getenv("X_USERNAME") and os.getenv("X_COOKIES")) and not os.path.exists(db_path):
         print("X: set X_USERNAME and X_COOKIES (see README) to use twscrape, skipping")
         return []
@@ -138,7 +145,7 @@ def scrape_twscrape(query=None, max_tweets=1000, since=None, db_path="data/twscr
     query = query or config.X_WEB_QUERY
     if since:
         query += f" since:{since}"
-    records = asyncio.run(_twscrape_search(query, max_tweets, db_path))
+    records = asyncio.run(_twscrape_search(query, max_tweets, db_path, checkpoint))
     print(f"  X: {len(records)} tweets fetched")
     return [r for r in records if is_relevant(r.text)]
 

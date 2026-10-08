@@ -68,7 +68,11 @@ def main():
 
 def fetch_x(args):
     if args.x_source == "twscrape":
-        return twitter.scrape_twscrape(args.x_query, max_tweets=args.max_tweets, since=args.x_since)
+        os.makedirs(args.out, exist_ok=True)
+        checkpoint = os.path.join(args.out, "x_partial.csv")
+        print(f"X: progress is saved to {checkpoint} every 100 tweets")
+        return twitter.scrape_twscrape(args.x_query, max_tweets=args.max_tweets, since=args.x_since,
+                                       checkpoint=checkpoint)
     return twitter.scrape(args.x_query, max_tweets=args.max_tweets)
 
 
