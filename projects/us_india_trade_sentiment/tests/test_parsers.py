@@ -104,3 +104,26 @@ def test_twscrape_parser():
     assert (r.id, r.parent_id, r.score, r.num_replies) == ("123", "120", 12, 4)
     assert r.text == "Trump says India trade deal is close"
     assert r.created_utc.startswith("2026-10-08T09:30") and r.author_hash != "bob"
+
+
+def test_twscrape_stops_at_max_tweets(tmp_path, monkeypatch):
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+
+    twscrape = __import__("pytest").importorskip("twscrape")
+
+    async def endless(self, q, limit=-1, kv=None):  # ignores `limit`, like real twscrape can
+        i = 0
+        while True:
+            i += 1
+            yield SimpleNamespace(
+                id=i, conversationId=i, date=datetime.now(timezone.utc),
+                user=SimpleNamespace(username="u"), rawContent="US India trade deal",
+                likeCount=0, replyCount=0, url="u",
+            )
+
+    monkeypatch.setattr(twscrape.API, "search", endless)
+    monkeypatch.setenv("X_USERNAME", "a")
+    monkeypatch.setenv("X_COOKIES", "auth_token=x; ct0=y")
+    recs = twitter.scrape_twscrape(max_tweets=150, db_path=str(tmp_path / "db"))
+    assert len(recs) == 150

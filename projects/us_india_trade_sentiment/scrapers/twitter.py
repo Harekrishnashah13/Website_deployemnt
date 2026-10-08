@@ -124,6 +124,8 @@ async def _twscrape_search(query, max_tweets, db_path, checkpoint=None):
     records = []
     async for t in api.search(query, limit=max_tweets):
         records.append(parse_twscrape_tweet(t, query))
+        if len(records) >= max_tweets:
+            break  # twscrape's own `limit` is approximate, so stop here
         if len(records) % 100 == 0:
             print(f"  X: {len(records)} tweets", flush=True)
             if checkpoint:
