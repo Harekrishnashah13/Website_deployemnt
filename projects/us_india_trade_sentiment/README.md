@@ -111,9 +111,10 @@ on-topic thread.
 
 1. **Cleaning:** collection window, exact and near-duplicates, posts over 1,000 characters, at most 3 posts per author.
 2. **Part A, classic NLP:** TF-IDF keywords, VADER sentiment, a TF-IDF + Logistic Regression sentiment model, and NMF topics.
-3. **Part B, LLM:** Claude labels every post (sentiment, topic, sarcasm, reason) with structured JSON output, then
-   writes a summary of the community conversation. Needs an Anthropic API key (about $2–3 for ~1,700 posts).
-   Labels are cached in `llm_labels.csv`, so a re-run never pays twice.
+3. **Part B, LLM:** Google Gemini (free tier) labels every post (sentiment, topic, sarcasm, reason) with structured
+   JSON output, then writes a summary of the community conversation. Needs a free API key from aistudio.google.com.
+   It sends 50 posts per request, paces requests, and saves progress to `llm_labels.csv` after every request.
+   If the free daily limit is reached, run the cell again later and it continues where it stopped.
 4. **Part C, comparison:** sentiment mix by method, agreement and Cohen's kappa, confusion matrices,
    disagreement examples, NMF-vs-LLM topic match, and daily net sentiment.
 5. **Insights and conclusion.**
