@@ -104,3 +104,16 @@ on-topic thread.
   narrow queries across many subreddits and removes duplicates.
 - For history older than about a year, Reddit search won't reach back far enough. Use a Pushshift
   archive dump (e.g. Arctic Shift) instead.
+
+## Analysis notebook
+
+`US_India_Trade_Sentiment_Analysis.ipynb` (open in Google Colab) takes the scraped `x_all.csv` and runs:
+
+1. **Cleaning:** collection window, exact and near-duplicates, posts over 1,000 characters, at most 3 posts per author.
+2. **Part A, classic NLP:** TF-IDF keywords, VADER sentiment, a TF-IDF + Logistic Regression sentiment model, and NMF topics.
+3. **Part B, LLM:** Claude labels every post (sentiment, topic, sarcasm, reason) with structured JSON output, then
+   writes a summary of the community conversation. Needs an Anthropic API key (about $2–3 for ~1,700 posts).
+   Labels are cached in `llm_labels.csv`, so a re-run never pays twice.
+4. **Part C, comparison:** sentiment mix by method, agreement and Cohen's kappa, confusion matrices,
+   disagreement examples, NMF-vs-LLM topic match, and daily net sentiment.
+5. **Insights and conclusion.**
